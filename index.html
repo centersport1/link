@@ -151,6 +151,9 @@
         .extra-links-section { padding: 0 20px 20px 20px; display: flex; flex-direction: column; gap: 12px; flex-grow: 1; }
         .link-btn { display: flex; align-items: center; justify-content: center; background-color: transparent; color: var(--primary-color); border: 2px solid var(--primary-color); text-decoration: none; padding: 12px; border-radius: 10px; font-weight: 600; font-size: 14px; transition: all 0.2s; }
         .link-btn:hover { background-color: var(--primary-color); color: white; }
+        .link-btn.with-image { padding: 0; overflow: hidden; flex-direction: column; }
+        .link-btn-image { width: 100%; aspect-ratio: 2 / 1; object-fit: cover; display: block; }
+        .link-btn-title { padding: 10px 12px; width: 100%; text-align: center; }
 
         footer { margin-top: auto; padding: 20px; text-align: center; font-size: 12px; color: var(--text-light); background-color: rgba(0,0,0,0.02); }
 
@@ -174,7 +177,7 @@
         .admin-section h3 { font-size: 16px; margin-bottom: 15px; color: #111; display: flex; align-items: center; gap: 8px; }
         .form-group { margin-bottom: 12px; }
         .form-group label { display: block; font-size: 12px; margin-bottom: 4px; font-weight: 600; color: #555; }
-        .form-group input[type="text"], .form-group input[type="file"], .form-group input[type="time"], .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-size: 14px; background: white; font-family: 'Poppins', sans-serif;}
+        .form-group input[type="text"], .form-group input[type="file"], .form-group input[type="time"], .form-group select, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-size: 14px; background: white; font-family: 'Poppins', sans-serif;}
         
         .color-row { display: flex; gap: 10px; align-items: center; }
         .color-preview { width: 40px; height: 40px; border-radius: 8px; border: 1px solid #ccc; flex-shrink: 0; }
@@ -432,7 +435,12 @@
                 <hr style="margin: 15px 0; border-top: 1px dashed #ccc;">
                 <input type="hidden" id="edit-seller-id" value="">
                 <div class="form-group"><label>Nome:</label><input type="text" id="new-seller-name"></div>
-                <div class="form-group"><label>Cargo:</label><input type="text" id="new-seller-role" value="Vendedor"></div>
+                <div class="form-group"><label>Cargo:</label><select id="new-seller-role">
+                    <option value="Vendedora">Vendedora</option>
+                    <option value="Vendedor" selected>Vendedor</option>
+                    <option value="Gerente">Gerente</option>
+                    <option value="Caixa">Caixa</option>
+                </select></div>
                 <div class="form-group"><label>WhatsApp (só números):</label><input type="text" id="new-seller-wa" placeholder="5511999999999"></div>
                 
                 <!-- Horários e Intervalos do Vendedor -->
@@ -495,6 +503,7 @@
                 <input type="hidden" id="edit-link-id" value="">
                 <div class="form-group"><label>Título:</label><input type="text" id="new-link-title"></div>
                 <div class="form-group"><label>URL:</label><input type="text" id="new-link-url"></div>
+                <div class="form-group"><label>Imagem (opcional):</label><input type="file" id="new-link-file" accept="image/*"></div>
                 <button class="btn-add" id="btn-link-action" onclick="saveLink()">+ Adicionar Link</button>
             </div>
 
@@ -552,6 +561,8 @@
         let modalCallback = null;
         let sellerCropState = { file: null, imageUrl: '', zoom: 1, offsetX: 0, offsetY: 0 };
         let sellerPendingCropFile = null;
+        let sellerDisplayOrderIds = null;
+        let sellerDisplaySignature = '';
         const WEEK_DAYS = [
             { value: 0, label: 'Domingo' }, { value: 1, label: 'Segunda-feira' },
             { value: 2, label: 'Terça-feira' }, { value: 3, label: 'Quarta-feira' },
@@ -581,7 +592,7 @@
                 { id: 2, platform: "facebook", url: "https://facebook.com/centersport" },
                 { id: 3, platform: "youtube", url: "https://youtube.com/@centersport" }
             ],
-            links: [{ id: 1, title: "🌐 Acesse nosso Site", url: "#" }],
+            links: [{ id: 1, title: "🌐 Acesse nosso Site", url: "#", imageUrl: "" }],
             footerText: "© 2026 Center Sport - Todos os direitos reservados"
         };
 
@@ -929,6 +940,20 @@
             return publicData.publicUrl;
         }
 
+        async function deleteImageByUrl(imageUrl) {
+            if (!imageUrl || !supabaseClient) return;
+            try {
+                const marker = '/storage/v1/object/public/linktree_uploads/';
+                const markerIndex = imageUrl.indexOf(marker);
+                if (markerIndex === -1) return;
+                const filePath = decodeURIComponent(imageUrl.slice(markerIndex + marker.length));
+                const { error } = await supabaseClient.storage.from('linktree_uploads').remove([filePath]);
+                if (error) console.error('Erro ao excluir imagem antiga:', error);
+            } catch (error) {
+                console.error('Erro ao localizar imagem antiga:', error);
+            }
+        }
+
         async function resizeImageToStandard(file) {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -1220,7 +1245,7 @@
             if (!s) return;
             document.getElementById('edit-seller-id').value = s.id;
             document.getElementById('new-seller-name').value = s.name;
-            document.getElementById('new-seller-role').value = s.role;
+            document.getElementById('new-seller-role').value = ['Vendedora', 'Vendedor', 'Gerente', 'Caixa'].includes(s.role) ? s.role : 'Vendedor';
             document.getElementById('new-seller-wa').value = s.whatsapp;
             document.getElementById('new-seller-photo').value = s.photoUrl || '';
             currentSellerSchedule = JSON.parse(JSON.stringify(normalizeSellerSchedule(s)));
@@ -1347,22 +1372,43 @@
             const id = document.getElementById('edit-link-id').value;
             const title = document.getElementById('new-link-title').value;
             const url = document.getElementById('new-link-url').value;
+            const fileInput = document.getElementById('new-link-file');
+            const selectedFile = fileInput.files[0];
 
             if(!title || !url) return showToast("Título e URL são obrigatórios!");
 
+            let imageUrl = '';
+            const existingLink = id ? appData.links.find(link => link.id == id) : null;
+            if (selectedFile) {
+                showLoading("Enviando imagem do link...");
+                try {
+                    imageUrl = await uploadImage(selectedFile, 'extra_links');
+                } catch (error) {
+                    hideLoading();
+                    return showToast("Erro ao enviar imagem: " + error.message);
+                }
+                hideLoading();
+                if (existingLink && existingLink.imageUrl && existingLink.imageUrl !== imageUrl) {
+                    await deleteImageByUrl(existingLink.imageUrl);
+                }
+            } else if (existingLink) {
+                imageUrl = existingLink.imageUrl || '';
+            }
+
             if (id) {
                 const link = appData.links.find(l => l.id == id);
-                if (link) { link.title = title; link.url = url; }
+                if (link) { link.title = title; link.url = url; link.imageUrl = imageUrl; }
                 showToast("Link atualizado!");
             } else {
                 const newId = appData.links.length > 0 ? Math.max(...appData.links.map(l => l.id)) + 1 : 1;
-                appData.links.push({ id: newId, title: title, url: url });
+                appData.links.push({ id: newId, title: title, url: url, imageUrl });
                 showToast("Link adicionado!");
             }
 
             document.getElementById('edit-link-id').value = '';
             document.getElementById('new-link-title').value = '';
             document.getElementById('new-link-url').value = '';
+            fileInput.value = '';
             document.getElementById('btn-link-action').innerText = "+ Adicionar Link";
             
             renderAdminView();
@@ -1375,6 +1421,7 @@
             document.getElementById('edit-link-id').value = l.id;
             document.getElementById('new-link-title').value = l.title;
             document.getElementById('new-link-url').value = l.url;
+            document.getElementById('new-link-file').value = '';
             document.getElementById('btn-link-action').innerText = "💾 Salvar Alterações";
         }
 
@@ -1390,7 +1437,9 @@
         function deleteLink(id) {
             showConfirm("Excluir Link", "Deseja remover este botão?", (res) => {
                 if (res) { 
+                    const link = appData.links.find(item => item.id === id);
                     appData.links = appData.links.filter(l => l.id !== id);
+                    if (link && link.imageUrl) deleteImageByUrl(link.imageUrl);
                     renderAdminView();
                     saveToSupabase(false);
                     showToast("Link removido.");
@@ -1511,7 +1560,7 @@
             });
             base.coupon = base.coupon || defaultFallbackData.coupon;
             base.secondaryBanner = base.secondaryBanner || defaultFallbackData.secondaryBanner;
-            base.links = legacyLinks;
+            base.links = legacyLinks.map(link => ({ ...link, imageUrl: link.imageUrl || '' }));
             base.socialLinks = legacySocialLinks.filter(Boolean);
             base.footerText = base.footerText || defaultFallbackData.footerText;
             return base;
@@ -1640,6 +1689,11 @@
             sellersGrid.innerHTML = ''; 
 
             const allSellers = appData.sellers || [];
+            const currentSellerSignature = JSON.stringify(allSellers.map(seller => ({ id: seller.id, name: seller.name, role: seller.role, whatsapp: seller.whatsapp })));
+            if (currentSellerSignature !== sellerDisplaySignature) {
+                sellerDisplaySignature = currentSellerSignature;
+                sellerDisplayOrderIds = null;
+            }
             const onlineSellers = [];
             const offlineSellers = [];
 
@@ -1651,7 +1705,20 @@
                 }
             });
 
-            const sortedSellers = [...shuffleArray(onlineSellers), ...shuffleArray(offlineSellers)];
+            if (!sellerDisplayOrderIds || sellerDisplayOrderIds.length !== allSellers.length) {
+                const regularSellers = allSellers.filter(seller => !['gerente', 'caixa'].includes(String(seller.role || '').toLowerCase()));
+                const managementSellers = allSellers.filter(seller => ['gerente', 'caixa'].includes(String(seller.role || '').toLowerCase()));
+                const regularOnline = regularSellers.filter(seller => getSellerStatus(seller).state === 'online');
+                const regularOffline = regularSellers.filter(seller => getSellerStatus(seller).state !== 'online');
+                const managementOnline = managementSellers.filter(seller => getSellerStatus(seller).state === 'online');
+                const managementOffline = managementSellers.filter(seller => getSellerStatus(seller).state !== 'online');
+                sellerDisplayOrderIds = [
+                    ...shuffleArray(regularOnline), ...shuffleArray(regularOffline),
+                    ...shuffleArray(managementOnline), ...shuffleArray(managementOffline)
+                ].map(seller => seller.id);
+            }
+            const sellerById = new Map(allSellers.map(seller => [seller.id, seller]));
+            const sortedSellers = sellerDisplayOrderIds.map(id => sellerById.get(id)).filter(Boolean);
 
             sortedSellers.forEach(seller => {
                 const sellerStatus = getSellerStatus(seller);
@@ -1689,7 +1756,8 @@
             const linksGrid = document.getElementById('extra-links-grid');
             linksGrid.innerHTML = '';
             (appData.links || []).forEach(link => {
-                linksGrid.innerHTML += `<a href="${link.url}" target="_blank" class="link-btn">${link.title}</a>`;
+                const imageMarkup = link.imageUrl ? `<img src="${link.imageUrl}" alt="${link.title}" class="link-btn-image">` : '';
+                linksGrid.innerHTML += `<a href="${link.url}" target="_blank" class="link-btn${link.imageUrl ? ' with-image' : ''}">${imageMarkup}<span class="link-btn-title">${link.title}</span></a>`;
             });
         }
 
@@ -1851,7 +1919,10 @@
             (appData.links || []).forEach((link, index) => {
                 adminLinksList.innerHTML += `
                     <div class="admin-item-list">
-                        <div><strong>${link.title}</strong></div>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            ${link.imageUrl ? `<img src="${link.imageUrl}" alt="${link.title}" style="width:80px; height:40px; object-fit:cover; border-radius:4px;">` : ''}
+                            <div><strong>${link.title}</strong><br><small>${link.url}</small></div>
+                        </div>
                         <div class="admin-actions">
                             ${index > 0 ? `<button class="btn-action" onclick="moveLink(${index}, -1)"><i class="fas fa-arrow-up"></i></button>` : ''}
                             ${index < appData.links.length - 1 ? `<button class="btn-action" onclick="moveLink(${index}, 1)"><i class="fas fa-arrow-down"></i></button>` : ''}
